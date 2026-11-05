@@ -519,6 +519,9 @@ func (e *Engine) confirm(ctx context.Context, cfg config.Config, t target, start
 		if e.confirmed(t.group.Key, start, e.now()) {
 			return nil
 		}
+		if cooling(cfg, t.cred, e.now()) {
+			continue
+		}
 		if err := e.refreshCred(ctx, cfg, t.cred); err != nil {
 			e.logf("warn", "点火确认时刷新额度失败：%s：%v", t.group.Label, err)
 		}

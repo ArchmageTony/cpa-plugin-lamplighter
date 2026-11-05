@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestParseEmptyUsesDefaults(t *testing.T) {
@@ -230,5 +232,44 @@ func TestParseAccountWeightsDropsInvalidWeights(t *testing.T) {
 	}
 	if len(cfg.AccountWeights) != 2 || cfg.AccountWeights["a.json"] != 5 || cfg.AccountWeights["b.json"] != 0.5 {
 		t.Fatalf("account weights %v", cfg.AccountWeights)
+	}
+}
+
+func TestSkipCPACooldownDefaultsToFalse(t *testing.T) {
+	cfg, err := Parse(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SkipCPACooldown {
+		t.Fatal("skip_cpa_cooldown must default to false")
+	}
+}
+
+func TestParseSkipCPACooldown(t *testing.T) {
+	cfg, err := Parse([]byte("skip_cpa_cooldown: true\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.SkipCPACooldown {
+		t.Fatal("skip_cpa_cooldown: true must be parsed")
+	}
+	// The round trip keeps the key name and the value.
+	raw, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.SkipCPACooldown {
+		t.Fatalf("the round trip lost skip_cpa_cooldown: %s", raw)
+	}
+	cfg, err = Parse([]byte("skip_cpa_cooldown: false\npoll_interval_seconds: 120\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SkipCPACooldown || cfg.PollIntervalSeconds != 120 {
+		t.Fatalf("an explicit false or a sibling setting got lost: %v %d", cfg.SkipCPACooldown, cfg.PollIntervalSeconds)
 	}
 }

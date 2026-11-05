@@ -430,9 +430,15 @@ func (e *Engine) Status() Status {
 	for _, cred := range e.creds {
 		creds = append(creds, cred)
 	}
+	now := e.now()
 	sort.SliceStable(creds, func(i, j int) bool {
 		if creds[i].Provider != creds[j].Provider {
 			return providers.Rank(creds[i].Provider) < providers.Rank(creds[j].Provider)
+		}
+		leftCooling := creds[i].CooldownUntil.After(now)
+		rightCooling := creds[j].CooldownUntil.After(now)
+		if leftCooling != rightCooling {
+			return !leftCooling
 		}
 		return creds[i].Suffix < creds[j].Suffix
 	})
@@ -461,7 +467,7 @@ func (e *Engine) Status() Status {
 			}
 			return groups[i].Key < groups[j].Key
 		})
-		if now := e.now(); cred.CooldownUntil.After(now) {
+		if cred.CooldownUntil.After(now) {
 			account.CooldownUntil = cred.CooldownUntil
 			account.StaleCooldown = staleCooldown(cred, groups, now)
 		}

@@ -304,9 +304,17 @@ func (e *Engine) shouldSkipActive(cfg config.Config, cred *Cred, slot, now time.
 	return true
 }
 
+// cooling reports whether cred stays out of the active queries because CPA
+// holds it in a cooldown that has not ended at now. Only the cooldown time
+// counts; the status text is not interpreted.
+func cooling(cfg config.Config, cred *Cred, now time.Time) bool {
+	return cfg.SkipCPACooldown && cred.CooldownUntil.After(now)
+}
+
 // poll runs one round of active queries. slot is the aligned time this round
 // belongs to. onlyAuth limits the round to one credential. force disables the
-// passive skip rule, for the manual refresh button.
+// passive skip rule, for the manual refresh button. A credential whose CPA
+// cooldown has not ended is skipped whatever force is.
 func (e *Engine) poll(ctx context.Context, cfg config.Config, slot time.Time, onlyAuth string, force bool) {
 	creds, err := e.loadCreds(cfg)
 	if err != nil {
@@ -317,6 +325,7 @@ func (e *Engine) poll(ctx context.Context, cfg config.Config, slot time.Time, on
 		return
 	}
 	errs := map[string]string{}
+	skipped := map[string]bool{}
 	for _, cred := range creds {
 		if ctx.Err() != nil {
 			return
@@ -325,6 +334,10 @@ func (e *Engine) poll(ctx context.Context, cfg config.Config, slot time.Time, on
 			continue
 		}
 		now := e.now()
+		if cooling(cfg, cred, now) {
+			skipped[cred.AuthIndex] = true
+			continue
+		}
 		if !force && e.shouldSkipActive(cfg, cred, slot, now) {
 			continue
 		}
@@ -335,9 +348,16 @@ func (e *Engine) poll(ctx context.Context, cfg config.Config, slot time.Time, on
 	}
 	e.mu.Lock()
 	if onlyAuth == "" {
+		// A credential skipped for its CPA cooldown keeps the error of its
+		// last query: the skip is neither a success nor a new result.
+		for authIndex := range skipped {
+			if text, ok := e.pollErrs[authIndex]; ok {
+				errs[authIndex] = text
+			}
+		}
 		e.pollErrs = errs
 		e.lastPoll = e.now()
-	} else {
+	} else if !skipped[onlyAuth] {
 		delete(e.pollErrs, onlyAuth)
 		for key, value := range errs {
 			e.pollErrs[key] = value

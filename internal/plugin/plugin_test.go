@@ -136,3 +136,33 @@ func TestUnknownMethodAndUsage(t *testing.T) {
 	record, _ := json.Marshal(pluginapi.UsageRecord{Provider: "claude", AuthIndex: "1"})
 	result(t, p.Handle("usage.handle", record))
 }
+
+func TestRegisterDeclaresForkMetadataAndSkipField(t *testing.T) {
+	p := New(nopHost{}, "0.7.4-at.2", t.TempDir(), "")
+	defer p.Shutdown()
+	req, _ := json.Marshal(map[string]any{"config_yaml": []byte("enabled: true\nbark_url: https://api.day.app/k\n"), "schema_version": 6})
+	var reg struct {
+		Metadata struct {
+			Author           string
+			GitHubRepository string
+			ConfigFields     []struct {
+				Name        string
+				Type        string
+				Description string
+			}
+		}
+	}
+	json.Unmarshal(result(t, p.Handle("plugin.register", req)), &reg)
+	if reg.Metadata.Author != "AT" || reg.Metadata.GitHubRepository != "https://github.com/ArchmageTony/cpa-plugin-lamplighter" {
+		t.Fatalf("unexpected fork metadata %+v", reg.Metadata)
+	}
+	for _, f := range reg.Metadata.ConfigFields {
+		if f.Name == "skip_cpa_cooldown" {
+			if f.Type != "boolean" || f.Description == "" {
+				t.Fatalf("unexpected skip_cpa_cooldown field %+v", f)
+			}
+			return
+		}
+	}
+	t.Fatal("the skip_cpa_cooldown field is not registered")
+}

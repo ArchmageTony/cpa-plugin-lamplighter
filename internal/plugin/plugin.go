@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	repository  = "https://github.com/PosvdM/cpa-plugin-lamplighter"
+	repository  = "https://github.com/ArchmageTony/cpa-plugin-lamplighter"
 	apiBase     = "/v0/management/" + config.PluginID
 	pagePath    = "/page"
 	stopTimeout = 10 * time.Second
@@ -145,7 +145,7 @@ func (p *Plugin) registration() registration {
 		Metadata: pluginapi.Metadata{
 			Name:             "Lamplighter",
 			Version:          p.version,
-			Author:           "PosvdM",
+			Author:           "AT",
 			GitHubRepository: repository,
 			ConfigFields: []pluginapi.ConfigField{
 				field("bark_url", pluginapi.ConfigFieldTypeString, "Bark 推送地址，到 device key 为止；为空时不通过 Bark 推送 / Bark push URL up to the device key; empty disables Bark"),
@@ -162,6 +162,7 @@ func (p *Plugin) registration() registration {
 				field("poll_interval_seconds", pluginapi.ConfigFieldTypeInteger, "主动查询间隔，对齐到整点 / Active query interval, aligned to the hour"),
 				field("passive_skip_seconds", pluginapi.ConfigFieldTypeInteger, "整点前多少秒内有被动数据时跳过主动查询，0 为不跳过 / Skip the active query when passive data arrived this many seconds before the slot; 0 never skips"),
 				field("passive_skip_max_minutes", pluginapi.ConfigFieldTypeInteger, "同一账号最多连续跳过多少分钟 / Longest run of skipped queries per account, in minutes"),
+				field("skip_cpa_cooldown", pluginapi.ConfigFieldTypeBoolean, "主动查询跳过 CPA 冷却未结束的凭证 / Active queries skip credentials whose CPA cooldown has not ended"),
 				field("ignition", pluginapi.ConfigFieldTypeObject, "点火开关、每日时段和失败保护 / Ignition switch, daily hours and failure protection"),
 				field("providers", pluginapi.ConfigFieldTypeObject, providersDescription()),
 				field("codex_reset_updates", pluginapi.ConfigFieldTypeObject, "转发 Did Codex Reset 的重置信号 / Forward Did Codex Reset signals"),

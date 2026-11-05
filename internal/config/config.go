@@ -132,6 +132,11 @@ type Config struct {
 	PassiveSkipSeconds    int `yaml:"passive_skip_seconds" json:"passive_skip_seconds"`
 	PassiveSkipMaxMinutes int `yaml:"passive_skip_max_minutes" json:"passive_skip_max_minutes"`
 
+	// SkipCPACooldown leaves credentials whose CPA cooldown has not ended
+	// out of the active queries. Passive updates and the status list keep
+	// working for them.
+	SkipCPACooldown bool `yaml:"skip_cpa_cooldown" json:"skip_cpa_cooldown"`
+
 	CPABaseURL   string `yaml:"cpa_base_url" json:"cpa_base_url"`
 	ModelsAPIKey string `yaml:"models_api_key" json:"models_api_key"`
 
