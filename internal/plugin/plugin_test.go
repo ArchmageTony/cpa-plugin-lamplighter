@@ -138,7 +138,7 @@ func TestUnknownMethodAndUsage(t *testing.T) {
 }
 
 func TestRegisterDeclaresForkMetadataAndSkipField(t *testing.T) {
-	p := New(nopHost{}, "0.7.4-at.2", t.TempDir(), "")
+	p := New(nopHost{}, "0.7.5-at.1", t.TempDir(), "")
 	defer p.Shutdown()
 	req, _ := json.Marshal(map[string]any{"config_yaml": []byte("enabled: true\nbark_url: https://api.day.app/k\n"), "schema_version": 6})
 	var reg struct {
