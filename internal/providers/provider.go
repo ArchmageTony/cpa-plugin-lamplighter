@@ -154,9 +154,7 @@ func Fetch(ctx context.Context, p *Provider, doer quota.Doer, cred Credential, n
 }
 
 // TriggerPrompt is the only content of an ignition request.
-const TriggerPrompt = "This is an automated quota-window trigger. " +
-	"Do not think, reason, deliberate, use tools, or perform any other task. " +
-	"Reply with exactly OK and nothing else."
+const TriggerPrompt = "Reply with only OK. Do not think, do not use tools, do not do anything else."
 
 // Request returns the entry protocol and body of the ignition request.
 func Request(p *Provider, model string) (string, []byte, error) {
@@ -196,10 +194,9 @@ func Candidates(p *Provider, group, override string, available []string) ([]stri
 // chatBody is an OpenAI chat completion request for model.
 func chatBody(model string, extra map[string]any) map[string]any {
 	body := map[string]any{
-		"model":      model,
-		"messages":   []any{map[string]any{"role": "user", "content": TriggerPrompt}},
-		"max_tokens": 4,
-		"stream":     false,
+		"model":    model,
+		"messages": []any{map[string]any{"role": "user", "content": TriggerPrompt}},
+		"stream":   true,
 	}
 	for key, value := range extra {
 		body[key] = value

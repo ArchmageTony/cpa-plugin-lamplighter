@@ -33,9 +33,9 @@ Lamplighter is a native plugin for [CLIProxyAPI](https://github.com/router-for-m
 
 Kimi quota queries follow the CPA Management Center; parsing is tested with a real response a user provided, but the requests have not run against a real account yet. Grok accounts billed by API usage have no quota to read and show an error. Accounts without a 5-hour window, such as ChatGPT Pro, are monitored for their other windows and not ignited.
 
-Notifications and the page name the quota group of ChatGPT accounts `GPT`, so that it does not start with the same letter as Claude. When a service has several accounts, notifications and the page tell them apart by the last two characters of the email user name, for example `GPT#rk`. A named account shows its name instead, for example `GPT#main`. To name an account, click "Name" on its card in the Lamplighter page, or edit the credential's "Note" in the CPA Management Center. The name is the first line of the note, cut at 20 characters. A service with one account also shows its name. When a name equals the name or email suffix of another account of the service, the email suffix follows the name. For a note with more lines, clearing the name in the Lamplighter page deletes the whole note. A note changed in the CPA Management Center takes effect after the next poll or a manual refresh. Recorded events keep their original label.
+Notifications and the page name the quota group of ChatGPT accounts `GPT`, so that it does not start with the same letter as Claude. When a service has several accounts, notifications and the page tell them apart by the last two characters of the email user name, for example `GPT#rk`. A named account shows its name instead, for example `GPT#main`. To name an account, fill in "Name" in the "Accounts" section of the Lamplighter settings view, or edit the credential's "Note" in the CPA Management Center. The name is the first line of the note, cut at 20 characters. A service with one account also shows its name. When a name equals the name or email suffix of another account of the service, the email suffix follows the name. For a note with more lines, clearing the name in the Lamplighter page deletes the whole note. A note changed in the CPA Management Center takes effect after the next poll or a manual refresh. Recorded events keep their original label.
 
-When a service has several accounts, the total in the chart averages their remaining quota by weight; the weight says how many times the quota of the service's cheapest paid plan the account has. The default weight follows the detected plan, whose name shows at the bottom of the account card. The ChatGPT plan comes with the quota query. The Claude and Antigravity plans are read from the account profile once a day per account, and again at once when the account starts or stops reporting a quota window, for example when the 5-hour Gemini window disappears after Google AI Pro expires. A failed read keeps the plan read before, and the weight is 1 until a plan has been read. "Weight" on an account card sets a weight by hand, decimals allowed; leave it empty to restore the default. Weights set by hand are saved in `account_weights` and take precedence over the defaults. A weight other than 1 shows after the account title, for example `×5`.
+When a service has several accounts, the total in the chart averages their remaining quota by weight; the weight says how many times the quota of the service's cheapest paid plan the account has. The default weight follows the detected plan, whose name shows at the bottom of the account card. The ChatGPT plan comes with the quota query. The Claude and Antigravity plans are read from the account profile once a day per account, and again at once when the account starts or stops reporting a quota window, for example when the 5-hour Gemini window disappears after Google AI Pro expires. A failed read keeps the plan read before, and the weight is 1 until a plan has been read. The "Weight" field in the "Accounts" section of the settings view sets a weight by hand, decimals allowed; leave it empty to restore the plan default shown in the field. Weights set by hand are saved in `account_weights` and take precedence over the defaults. A weight other than 1 shows after the account title, for example `×5`.
 
 | Service | Plan | Default weight |
 | --- | --- | --- |
@@ -55,7 +55,7 @@ When the plan of an account changes, for example when Google AI Pro expires or i
 
 ## Requirements
 
-- CPA v8.0.4 or later with plugins enabled (`plugins.enabled: true`). The plugin is built for Linux amd64/arm64, macOS amd64/arm64 and Windows amd64; the macOS builds are only built and tested in CI and have not been tried on a running CPA.
+- CPA v8.0.4 or later with plugins enabled (`plugins.enabled: true`). The plugin is built for Linux amd64/arm64, macOS amd64/arm64 and Windows amd64; the macOS builds have not been tried on a running CPA.
 - A CPA API key reserved for Lamplighter. The plugin reads the model list with it to pick ignition models.
 - For notifications, an iPhone with Bark or a service that accepts webhooks.
 
@@ -96,6 +96,8 @@ If an account produced passive data in the 60 seconds before a scheduled query, 
 
 Claude and Codex quotas have 1% precision, whether queried or read passively. Antigravity queries return decimals, and so can Kimi, whose percentage is computed from used and limit counts.
 
+When an upgrade removes a window and a downgrade brings it back, its first returning reading only establishes a new alert baseline, without recovery or pre-reset notifications. Disappearance sends no notification. Absence confirmed by an active query persists across plugin restarts. Passive response headers cannot restore an absent window; only a later successful active query can restore it. When reading an older state file, the plugin attempts to recover the last actively confirmed window set. Existing quota groups whose set cannot be recovered wait for a successful active query; response headers cannot add windows to those groups in the meantime. An absent 5-hour window is not ignited; ignition resumes automatically when it returns. History retains retired windows.
+
 **Network exit**: active queries leave through the same exit that CPA uses for model requests of the account: the account's `proxy_url`, then the global `proxy-url`, then proxies from environment variables, then a direct connection. When an account's `proxy_url` cannot be parsed, the plugin skips the query instead of connecting directly.
 
 ## Window ignition
@@ -104,11 +106,15 @@ A 5-hour window starts with the first request after a reset. If nobody uses the 
 
 - Times use the plugin time zone, which follows the CPA server by default.
 - The first ignition each day is at `07:00`; after that, 3 seconds after each reset, until `22:30`. A reset later than that waits for 07:00 the next day.
-- The request asks the model to reply `OK`, declares no tools and allows at most 4 output tokens.
+- The request asks the model to reply `OK`, declares no tools and sets no output-token limit. The first nonempty streamed output (text, visible reasoning or tool arguments) starts an independent 2-second timer that closes the upstream stream. A stream that ends sooner is cleaned up immediately. Heartbeats and lifecycle events do not start the timer, and this deliberate cutoff does not trigger model fallback.
 - Models are picked automatically: the newest Luna for ChatGPT, the newest Haiku for Claude, and the newest Flash for Antigravity's Gemini group. A model is used from the first ignition after CPA lists it; when the provider refuses it, that ignition falls back to the next candidate; when the fallback works, an event is recorded and the quota group skips the refused model for 24 hours. They can also be set in the config.
 - An ignition counts as successful only when the 5-hour window afterwards has a fixed reset time in the future.
 
-**Failure protection**:
+Before the first output, waiting follows CPA's own behavior; `request_timeout_seconds` does not limit model startup. Stopping the plugin closes requests whose stream IDs are available; a request still starting must wait for CPA to return its stream ID. See [Streaming and cancellation (in Chinese)](./docs/architecture.md#流式执行与取消) for these limits.
+
+After each model call, the CPA server log records the service, model, correlation identifiers, received text, host-reported usage and its completeness, end reason, time to first output and total duration. Text, including visible reasoning and tool arguments, is capped at 4096 Unicode characters and marked when truncated. Usage retains CPA's numbers without estimating tokens. CPA translation may fill missing counters with zeros or combine token categories, so Antigravity usage is marked partial even after a natural end. Other completeness labels describe host-protocol accounting only; they do not guarantee that all upstream usage or breakdowns were returned. Records exclude credentials, full requests and encrypted reasoning, and are not added to page events or quota history.
+
+**Failure protection**: the retry and pause rules below apply to scheduled ignition. A failed "Ignite now" request only displays the error and records an event. It does not retry automatically, count toward failure protection, or change the existing automatic schedule. Successful manual ignition is recorded as usual.
 
 - Authentication failures, rate limits (429), unavailable models, or a request that succeeded without starting the window pause ignition for that quota group until 07:00 the next day, with one notification.
 - Network and server errors are retried after 5 and 15 minutes; a third failure also pauses until the next day.
@@ -131,7 +137,9 @@ Title icons: 🟡 remaining fell to the first threshold (50% by default), 🔴 t
 
 ## Configuration
 
-All settings live under `plugins.configs.lamplighter` in `config.yaml`, and can also be edited under "设置" (Settings) on the management page. Settings on the page save as you change them: switches and checkboxes when clicked, text and numbers when you leave the field or press Enter. Changes apply without a restart.
+All settings live under `plugins.configs.lamplighter` in `config.yaml`. On the management page, use the "Quota | Settings" switch at the top to open the settings view. Switches and checkboxes save when clicked; text and numbers save when you leave the field or press Enter. Save results appear to the right of section headings, or beside each group legend under "Advanced". The three alert thresholds save together and must be in descending order, with equal values allowed. Changes apply without a restart. A saved field shows "Saved; waiting to take effect", then "In effect" after the plugin confirms it; confirmation waits at most 15 seconds after the save succeeds, even if status requests hang. If still unconfirmed at the deadline, it shows "Not confirmed in effect"; a late confirmation does not change that wait result.
+
+With no failures, the heading shows the most recent save's progress. A failed save takes priority, with the field name and reason; failed controls have red borders and keep their input drafts. Saving another item cannot hide the failure; it clears only when the failed item saves successfully. For multiple failures, the latest reason is shown with the number of other failures. On narrow screens, only "Save failed" and the failure count remain visible; field names and reasons are hidden to keep long text out of the heading. Editing revokes older requests' ability to update that item's result, so late responses and confirmations cannot overwrite later edits. Unresolved failures remain visible. MCP settings also show why the endpoint failed to start.
 
 | Key | Default | Description |
 | --- | --- | --- |
@@ -147,7 +155,7 @@ All settings live under `plugins.configs.lamplighter` in `config.yaml`, and can 
 | `timezone` | empty | Time zone for displayed times and the ignition window, such as `Asia/Shanghai`; empty follows the CPA server (set by `TZ` in the official Docker image) |
 | `timezone_offset_hours` | empty | Fixed UTC offset such as `8`; used only when `timezone` is empty |
 | `poll_interval_seconds` | `300` | Active query interval, at least 60 |
-| `request_timeout_seconds` | `20` | Timeout of one upstream request |
+| `request_timeout_seconds` | `20` | Timeout for HTTP requests such as quota queries and notifications; does not limit ignition model startup or time to first output |
 | `passive_skip_seconds` | `60` | Skip the query when passive data arrived this many seconds before it; `0` never skips |
 | `passive_skip_max_minutes` | `30` | Longest run of skipped queries for one account |
 | `models_api_key` | empty | CPA API key for reading the model list; without it ignition cannot pick a model. The management key does not work here; the page does not save the management key or a key CPA does not accept, and says why |
@@ -155,7 +163,14 @@ All settings live under `plugins.configs.lamplighter` in `config.yaml`, and can 
 | `history_retention_days` | `40` | Days of quota history to keep |
 | `remember_chart_filters` | `false` | The management page remembers, in the current browser, the quota window, time range and order last chosen in the quota chart; when off, the page opens with the defaults |
 | `account_weights` | empty | The weight of each account in the total of several accounts, keyed by credential file name, a number above 0; accounts without one use the default of their plan, see above |
+| `account_order` | empty | Account order by credential file name; unlisted accounts follow in default order and missing entries are ignored |
+| `mcp_enabled` | `false` | Enable the independent MCP server, see [MCP](#mcp) |
+| `mcp_listen` | `127.0.0.1:8318` | MCP listen address |
+| `mcp_key` | empty | Dedicated MCP Bearer key; empty prevents listening |
+| `config_token` | empty | Configuration acknowledgment token generated on each page save; usually no manual setting is needed. See [Architecture (in Chinese)](./docs/architecture.md#与-cpa-的接口) |
 | `data_dir` | `data/lamplighter` in the plugin directory | State and history directory |
+
+Alert thresholds are normalized to `100 ≥ notice_threshold ≥ low_threshold ≥ critical_threshold ≥ 0`: later levels cannot exceed earlier ones. The normalized values take effect and the adjustment is logged.
 
 With both `bark_url` and `webhook.url` empty, notifications are off: nothing is sent and no failed notifications are logged as events. Quota alerts from that time are not sent once a URL is set; Did Codex Reset signals that have not expired are still sent.
 
@@ -220,6 +235,101 @@ plugins:
       codex_reset_updates:
         enabled: true
 ```
+
+## MCP
+
+MCP lets coding agents query quota through standard Streamable HTTP, independently of the client. The plugin listens on `127.0.0.1:8318` at `/mcp` and requires a dedicated Bearer key. The CPA management key does not authenticate this endpoint. Protocol versions `2025-03-26` and `2025-06-18` are supported; responses are JSON only, without SSE.
+
+Enable MCP in the settings view; if no key is set, the page generates one in the same save. You can also generate a new key separately or configure these keys under `plugins.configs.lamplighter`:
+
+```yaml
+mcp_enabled: true
+mcp_listen: "127.0.0.1:8318"
+mcp_key: "<dedicated MCP key>"
+```
+
+Use a cryptographic random generator for the key, for example 32 random bytes encoded as base64url with an `llmcp_` prefix. An empty key prevents the listener from starting and reports the reason in management status. Changes to the switch, address or key apply automatically. Status uses `config.mcp_key_set` only to indicate whether a key is set. The top-level `config_applied_token` confirms completion of configuration application; check the listener state and error to determine whether the endpoint is usable. The original key is stored in CPA configuration and can be read by anyone with the management key. In Docker, the loopback address belongs to the CPA container. A local agent can share that network namespace; other deployments should connect a reverse proxy through a restricted container network without publishing an unencrypted MCP port.
+
+### Client connections
+
+The default URL within the same network namespace is `http://127.0.0.1:8318/mcp`. Replace it with an HTTPS URL for remote access. `<key>` below is the dedicated MCP key.
+
+Claude Code:
+
+```sh
+claude mcp add --transport http lamplighter http://127.0.0.1:8318/mcp --header "Authorization: Bearer <key>"
+```
+
+Codex CLI, with the key provided through an environment variable:
+
+```sh
+export LAMPLIGHTER_MCP_KEY='<key>'
+codex mcp add lamplighter --url http://127.0.0.1:8318/mcp --bearer-token-env-var LAMPLIGHTER_MCP_KEY
+```
+
+Generic client configuration example; check the client's documentation for its configuration format:
+
+```json
+{"mcpServers":{"lamplighter":{"type":"http","url":"http://127.0.0.1:8318/mcp","headers":{"Authorization":"Bearer <key>"}}}}
+```
+
+Clients that only support stdio can connect through `mcp-remote`:
+
+```sh
+npx mcp-remote http://127.0.0.1:8318/mcp --header "Authorization: Bearer <key>"
+```
+
+### HTTPS reverse proxy
+
+Do not expose the listener directly to the public Internet. For remote use, keep MCP on loopback and terminate TLS with a reverse proxy on the same host. Add firewall restrictions or an allowlist as needed. Preserve the `Authorization` and `MCP-Protocol-Version` headers. Browser requests with a non-local `Origin` are rejected; ordinary MCP agents usually omit this header.
+
+Nginx example; replace the domain and certificate paths:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name quotas.example.com;
+    ssl_certificate /etc/letsencrypt/live/quotas.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/quotas.example.com/privkey.pem;
+    location = /mcp {
+        proxy_pass http://127.0.0.1:8318/mcp;
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header MCP-Protocol-Version $http_mcp_protocol_version;
+        proxy_read_timeout 190s;
+    }
+}
+```
+
+Caddy example; point the domain at the proxy and let Caddy obtain the HTTPS certificate:
+
+```caddyfile
+quotas.example.com {
+    reverse_proxy /mcp 127.0.0.1:8318 {
+        transport http {
+            response_header_timeout 190s
+        }
+    }
+}
+```
+
+### Tools
+
+| Tool | Purpose |
+| --- | --- |
+| `list_quotas(provider?, account?, model?)` | Current windows, account plans and weights, weighted remaining quota, earliest account exhaustion, resets, forecasts, hourly consumption, seven-day even-pace budgets, freshness and source, credential authentication errors and next ignition |
+| `get_quota_history(provider?, account?, window?, range?)` | Quota history including retired windows; at most 200 points per series and 2000 points per response |
+| `refresh_quotas(account?)` | Active query, globally limited to once per 60 seconds; returns remaining wait seconds when throttled and waits at most 180 seconds for results |
+| `get_quota_events(since?, limit?)` | Recent reset, exhaustion and ignition success/failure events; `since` is an RFC3339 timestamp with timezone and `limit` an integer from 1 to 100 |
+
+Each MCP server instance executes at most four tool calls concurrently, including calls within a batch. Additional calls immediately receive a JSON-RPC `-32000` busy error and may be retried later. Query tools have a 10-second timeout; `refresh_quotas` has a 180-second timeout.
+
+MCP account labels use the first line of the note when present, first masking complete emails of all known accounts, then masking every remaining non-whitespace segment containing `@`. Quotes are removed from the user name before keeping its last two characters. Without a note name, the label is `***` plus the last two characters of the email user name, for example `***rk`; shorter user names keep all their characters. The domain and user-name length are not returned. Accounts without a note name or email use `account-number`. Labels that are identical after masking receive `#1`, `#2` and further suffixes, avoiding every base label and previously generated label so that each complete label identifies one account. `retired account` is reserved for retired accounts; a current account with that base label also receives a suffix. Current quotas, earliest account exhaustion, history and events all use these labels and never return full emails. This rule is independent of the page's blur switch.
+
+`account` accepts an exact complete label, the base label before the suffix, the original first note line or the full email. Complete labels take priority and select one account. Shared base labels or note names select multiple accounts, which `refresh_quotas` rejects; use a complete label or a unique email instead. `account="retired account"` selects only retired-account history; use the complete suffixed label or a unique email for a current account with that name. Omitting `account` selects all accounts.
+
+After CPA starts, the engine waits about 20 seconds before its first full poll. While the engine is not running or that poll is incomplete, the three read tools return `ready: false`, `state: "starting"`, `certain: false` and `retry_after_seconds: 30`, with an explanatory note and no data. This is not a tool error. A failed credential-list read allows the read tools to return results instead of waiting indefinitely for startup. When the plugin is disabled in the configuration, tools return `ready: false`, `state: "disabled"` and `certain: false`. `refresh_quotas` only requires a running engine and need not wait for the first full poll; non-running or disabled responses do not consume its 60-second refresh limit. Accepted refreshes on a running engine count toward the limit even if they fail.
+
+Times include both ISO timestamps with timezone and relative descriptions. Forecasts depend on continued use at the measured rate and are not guarantees; stale or unknown predictions are `null`. A `model` query returns candidate quota pools with `certain: false`: CPA also applies model aliases, credential availability, cooldowns and session routing during actual requests, so the plugin cannot guarantee which account will be selected. After a 429, refresh first and use the actual reset and CPA cooldown times to schedule a retry rather than relying only on a forecast. Events are filtered from at most 200 retained engine events of all kinds.
 
 ## Webhook
 
@@ -286,28 +396,39 @@ plugins:
 
 ## Management page
 
-The page shows:
+Use the "Quota | Settings" switch at the top to change views. The browser remembers the last view. The quota view shows:
 
-- the quota windows of each account with reset times, data sources and plan, with buttons to refresh each account, name it or set its weight in the total;
+- the quota windows of each account with reset times, data sources and plan, with a button to refresh each account;
+- five color levels shared by quota bars and charts: full at a raw remaining value of 100%, empty at 0%, and high, medium and low between them, split by the first two alert thresholds; 99.6% does not use the full color even when rounded to 100% for display;
 - the next ignition, last result and failure protection state of each quota group, with an "ignite now" button; hidden while ignition is off;
 - a quota chart:
-  - It shows either the 5-hour quota, over 1, 3, 6, 12, 24 or 26 hours (6 by default), or the 7-day quota, over 1, 4, 8 or 15 days, one month (from this date last month) or 36 days (8 days by default). Only the window kinds the accounts have are offered; windows of other lengths only show on the account cards. With `remember_chart_filters` on, the page keeps the last choices.
+  - It shows either the 5-hour quota, over 1, 3, 6, 12, 24 or 26 hours (6 by default), or the 7-day quota, over 1, 4, 8 or 15 days, one month (from this date last month) or 36 days (8 days by default). Window kinds and chart rows include current windows and windows with samples in the selected history range. A current window without new samples in the range keeps its row, with missing intervals marked as no data. Windows of other lengths only show on the account cards. With `remember_chart_filters` on, the page keeps the last choices.
   - 1 and 3 hours and 1 and 4 days end now. Longer ranges end at the reset of the selected row's current window; 6 hours, for example, shows the current 5-hour window and the last hour of the previous one, with the time after now hatched. When the selected row has no reset, or its reset has passed (a 5-hour window no request has opened yet), these ranges also end now.
-  - The top part has one colored band per service, colored like the quota bars by the lowest reading so far in each cycle, in the order Claude, GPT, Gemini, Kimi, Grok, Fable, Claude / GPT by default or by lowest remaining. A service with several accounts shows their weighted total and expands into one row per account.
-  - The bottom part plots the selected row with its resets and ignition results, and an even-pace line for each cycle, from 100% when the cycle starts to 0% at its reset, so a curve above the line is using the quota slower than an even pace; for a total, it is the weighted mean of the accounts' even pace. Its header shows the current remaining, the even-pace value now and the difference between them, green above the pace and red below. When the chart ends now, these three values also appear right of the plot, at the ends of the curve and the even-pace line.
+  - The top part has one colored band per service, colored like the quota bars by the lowest reading so far in each cycle. The default order follows the account cards: each service takes the position of its first account, and groups within the same account keep their group order. You can also sort by lowest remaining. A service with several accounts shows their weighted total and expands into one row per account.
+  - A window the account no longer reports is marked "Inactive" until its last sample leaves the selected range. It gets a separate row and is excluded from totals and lowest-first ordering. Its curve ends at the last reading, without an even-pace line or projection.
+  - The bottom part plots the selected row with its resets and ignition results. Its even-pace line uses the scheduled reset recorded at each time and a fixed 5-hour or 7-day length, falling linearly from 100% to 0% at that reset. An early reset cuts the old reference where the new reset is first observed and starts a reference for the new schedule. No reference is drawn while the reset is unknown. If the current window loses its reset time, the reference stops at the chart’s current-time boundary instead of extending toward the previous reset. The reference value is null at that boundary, and the single-account and total headers show “—” for both even pace and difference. A curve above the reference is using quota slower than an even pace. A total shows the weighted mean reference only while every account has a reference value. Its header shows the current remaining, the even-pace value now and the difference between them, green above the pace and red below. When the chart ends now, these three values also appear right of the plot, at the ends of the curve and the even-pace line.
   - When the chart ends at a reset, a projection starts now: if the quota runs out first, the time (and the date for the 7-day quota) is marked on the time axis; if the reset comes first, what will be left is marked right of the plot.
     - The 5-hour quota is projected at the current rate, showing where use at that rate would lead. The rate comes from the latest stretch of steady use in this cycle, so in the first minutes of heavy use the projected time comes too early.
     - The 7-day quota is projected at this cycle's daily average: what the cycle has used so far over the time since it began, including the time without use. In the first day or two of a cycle the projection is less accurate.
   - The page reads the status every 30 seconds and updates the chart when there is new data; while the pointer is over the chart, the update waits until it leaves.
-- recent events in columns for time, type, quota group and detail;
-- the settings form at the bottom, folded until you click "设置" (Settings), with a test notification button in the notification settings. The test goes to every configured channel and shows the result of each; it uses the settings the plugin has applied, so after changing a setting, wait a few seconds before testing. An empty ignition model field shows the model the next ignition will use in its hint; for Antigravity, the model of the Gemini group. Services that cannot be ignited show "No ignition". The model list is read when the plugin starts, when `cpa_base_url` or `models_api_key` changes and for every ignition, so a model newly listed by CPA shows after the next ignition, which already uses it.
+- recent events in columns for time, type, quota group and detail.
+
+The eye buttons at the top of the page, in the cards header and in the detail-chart header share the "Blur accounts" and "Show accounts" switch. It blurs current account identifiers, including names, emails and input fields in the "Accounts" settings section, and old names retained in events and history charts, including labels of renamed or deleted accounts and internal group identifiers of history that cannot be associated with a current account. Orphan history rows are blurred in the overview, detail, data table and screenshots; screen-reader labels use account numbers. Upstream errors and older event details that cannot be reliably split are blurred as a whole. Reloading restores visibility. Confirmation dialogs, such as clearing an account name, still show the original text. Blurring affects display only and does not remove the original data from API responses or the page.
+
+Each account card places "Refresh" and the camera button at the bottom right, in that order, beside the plan information on the left. Cards without plan information show only the right-aligned buttons. The card heading contains the service label and email.
+
+Camera buttons on each account card, in the cards header and in the detail-chart header copy one card, all cards or the detail chart to the clipboard as a PNG. Screenshots retain the current theme and blur state and omit action buttons. This requires a browser with image-clipboard support, a secure context such as HTTPS or localhost, and clipboard permission. Unsupported browsers disable the buttons.
+
+The settings view contains "Accounts", "Notification channels", "Alert rules", "Ignition", "Services" and "Advanced", in that order. The "Accounts" section lists accounts in their current order. Names and weights save when you leave the field or press Enter and share the heading result with order changes; failure handling is described under [Configuration](#configuration). Drag a handle to save the order in `account_order`, which sets the default order of quota cards and charts. Press Esc during a drag to cancel.
+
+"Send test" in the notification settings waits for pending saves and then uses the configuration token to wait up to 15 seconds for the plugin to confirm application; a hanging status request does not extend this wait. After confirmation it sends to every configured channel and shows each result; on timeout it reports "The new settings are not in effect yet, so the test was not sent" and sends nothing. An empty ignition model field shows the model the next ignition will use in its hint; for Antigravity, the model of the Gemini group. Services that cannot be ignited show "No ignition". The model list is read when the plugin starts, when `cpa_base_url` or `models_api_key` changes and for every ignition, so a model newly listed by CPA shows after the next ignition, which already uses it.
 
 The page follows the language of the CPA Management Center: Chinese for Simplified or Traditional Chinese, English for every other language.
 
 ## Security and risk
 
-- The plugin reads the access token from the credential file into memory only to query quota, and never writes it to logs or disk. The page and its API require the CPA management key.
-- `bark_url`, `webhook` and `models_api_key` are stored in plain text in CPA's `config.yaml`, visible to anyone with the management key.
+- The plugin reads the access token from the credential file into memory only to query quota, and never writes it to logs or disk. The page's data API requires the CPA management key; MCP uses its own key.
+- `bark_url`, `webhook`, `models_api_key` and `mcp_key` are stored in plain text in CPA's `config.yaml`, visible to anyone with the management key.
 - Each service restricts the use of subscription accounts through third-party tools in its own way. Using accounts through CPA, sending scheduled ignition requests and querying quota may all put accounts at risk. Use it at your own discretion.
 
 ## Development

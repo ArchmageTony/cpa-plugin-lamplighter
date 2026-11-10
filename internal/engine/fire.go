@@ -222,6 +222,13 @@ func (e *Engine) igniteTarget(ctx context.Context, cfg config.Config, t target, 
 	}
 	now := e.now()
 	if err != nil {
+		if manual {
+			// Keep the automatic retry and circuit state unchanged. Without
+			// retry params the page displays the stored failure detail.
+			e.addEventDetail("warn", "ignite_failed", t.group.Key, t.group.Label,
+				err.Error(), fmt.Sprintf("%s 手动点火失败：%v", t.group.Label, err), nil)
+			return err
+		}
 		outcome := schedule.RecordFailure(ts, now, err)
 		e.dirty = true
 		if outcome.CircuitOpened {
@@ -324,6 +331,9 @@ func (e *Engine) execute(ctx context.Context, cfg config.Config, t target) (stri
 	var lastErr, refusedErr error
 	refused := ""
 	for i, model := range candidates {
+		if ctx.Err() != nil || e.stopping() {
+			return model, empty, context.Canceled
+		}
 		protocol, body, err := providers.Request(spec, model)
 		if err != nil {
 			return "", empty, err
@@ -332,22 +342,15 @@ func (e *Engine) execute(ctx context.Context, cfg config.Config, t target) (stri
 		if forced == "" {
 			forced = t.group.Provider
 		}
-		resp, err := e.host.ModelExecute(pluginapi.HostModelExecutionRequest{
+		resp, err := e.executeStream(ctx, t, pluginapi.HostModelExecutionRequest{
 			EntryProtocol:  protocol,
 			ExitProtocol:   protocol,
 			Model:          model,
+			Stream:         true,
 			Body:           body,
 			ForcedProvider: forced,
 			AuthID:         t.cred.ID,
-		})
-		if err == nil && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
-			err = &host.Error{
-				Method:  "host.model.execute",
-				Code:    "model_execution_failed",
-				Message: truncateText(string(resp.Body), 300),
-				Status:  resp.StatusCode,
-			}
-		}
+		}, ignitionOutputWindow)
 		if err == nil {
 			if refused != "" {
 				e.noteRefused(t, refused, model)

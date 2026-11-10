@@ -15,9 +15,13 @@ type nopHost struct{}
 
 func (nopHost) AuthList() ([]pluginapi.HostAuthFileEntry, error) { return nil, nil }
 func (nopHost) AuthGet(string) (json.RawMessage, error)          { return nil, nil }
-func (nopHost) ModelExecute(pluginapi.HostModelExecutionRequest) (pluginapi.HostModelExecutionResponse, error) {
-	return pluginapi.HostModelExecutionResponse{}, nil
+func (nopHost) ModelExecuteStream(pluginapi.HostModelExecutionRequest) (pluginapi.HostModelStreamResponse, error) {
+	return pluginapi.HostModelStreamResponse{}, nil
 }
+func (nopHost) ModelStreamRead(string) (pluginapi.HostModelStreamReadResponse, error) {
+	return pluginapi.HostModelStreamReadResponse{Done: true}, nil
+}
+func (nopHost) ModelStreamClose(string) error { return nil }
 func (nopHost) HTTPDo(context.Context, pluginapi.HTTPRequest, time.Duration) (pluginapi.HTTPResponse, error) {
 	return pluginapi.HTTPResponse{}, nil
 }
@@ -138,7 +142,7 @@ func TestUnknownMethodAndUsage(t *testing.T) {
 }
 
 func TestRegisterDeclaresForkMetadataAndSkipField(t *testing.T) {
-	p := New(nopHost{}, "0.7.5-at.1", t.TempDir(), "")
+	p := New(nopHost{}, "0.8.4-at.1", t.TempDir(), "")
 	defer p.Shutdown()
 	req, _ := json.Marshal(map[string]any{"config_yaml": []byte("enabled: true\nbark_url: https://api.day.app/k\n"), "schema_version": 6})
 	var reg struct {
